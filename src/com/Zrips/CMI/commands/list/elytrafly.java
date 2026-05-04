@@ -1,69 +1,103 @@
 package com.Zrips.CMI.commands.list;
 
-import org.bukkit.command.CommandSender;
-import org.bukkit.entity.Player;
-import org.bukkit.inventory.ItemStack;
-
 import com.Zrips.CMI.CMI;
 import com.Zrips.CMI.Containers.CMIUser;
+import com.Zrips.CMI.Containers.Snd;
+import com.Zrips.CMI.Locale.CMILC;
+import com.Zrips.CMI.Modules.Permissions.PermissionsManager.CMIPerm;
 import com.Zrips.CMI.commands.CAnnotation;
 import com.Zrips.CMI.commands.Cmd;
 import net.Zrips.CMILib.FileHandler.ConfigReader;
 import net.Zrips.CMILib.Items.CMIItemStack;
 import net.Zrips.CMILib.Items.CMIMaterial;
-import net.Zrips.CMILib.Locale.LC;
-import net.Zrips.CMILib.Messages.CMIMessages;
+import org.bukkit.command.CommandSender;
+import org.bukkit.entity.Player;
+import org.bukkit.inventory.ItemStack;
 
 public class elytrafly implements Cmd {
 
+    public elytrafly() {
+    }
+
     @Override
-    public void getExtra(ConfigReader var1) {
-        var1.get("ElytraRequired", "{gcw}&cYou must wear an elytra to use /efly"); // Zrips, put msgs that you need here
-        var1.get("flyToggled", "{gcp}Elytra flight [status]&p!"); // Zrips, put msgs that you need here
+    public void getExtra(ConfigReader reader) {
+        reader.get("ElytraRequired", "{gcw}&cYou must wear an elytra to use this command!");
+        reader.get("feedback", "{gcp}You have set elytra fly to {gcs}[boolean]{gcp} for {gcs}[playerDisplayName]{gcp}.");
+        reader.get("targetFeedback", "{gcp}Your elytra fly mode set to {gcs}[boolean]{gcp} by {gcs}[senderDisplayName]{gcp}.");
     }
 
     @Override
     @CAnnotation(
             info = "Toggle flight mode specifically for Elytra users",
-            args = "([on/off])",
-            tab = {"on", "off"},
-            explanation = {"Enables or disables flight, but only if the player is wearing an Elytra."},
+            args = "[playerName] (true/false) (-s)",
+            regVar = {0, 1, 2},
             others = true
     )
     public Boolean perform(CMI plugin, CommandSender sender, String[] args) {
-        if (!(sender instanceof Player)) {
-            return false;
+        boolean silent = false;
+        String targetName = null;
+        Boolean state = null;
+
+        for (String arg : args) {
+            if (arg.equalsIgnoreCase("-s")) {
+                if (CMIPerm.command_silent.hasPermission(sender)) {
+                    silent = true;
+                }
+                continue;
+            }
+            if (arg.equalsIgnoreCase("true") || arg.equalsIgnoreCase("on") || arg.equalsIgnoreCase("t")) {
+                state = true;
+                continue;
+            }
+            if (arg.equalsIgnoreCase("false") || arg.equalsIgnoreCase("off") || arg.equalsIgnoreCase("f")) {
+                state = false;
+                continue;
+            }
+            targetName = arg;
         }
 
-        Player player = (Player) sender;
-        CMIUser user = plugin.getPlayerManager().getUser(player);
+        Player player = plugin.getTarget(sender, targetName, this);
+        if (player == null) {
+            return null;
+        }
 
         ItemStack chest = player.getInventory().getChestplate();
         CMIItemStack cmiChest = new CMIItemStack(chest);
-
         if (chest == null || cmiChest.getCMIType() != CMIMaterial.ELYTRA) {
-            com.Zrips.CMI.Locale.CMILC.info(this, sender, "ElytraRequired");
+            CMILC.info(this, sender, "ElytraRequired");
             return false;
         }
 
-        boolean newState = !player.getAllowFlight();
-
-        if (args.length > 0) {
-            if (args[0].equalsIgnoreCase("on")) {
-                newState = true;
-            } else if (args[0].equalsIgnoreCase("off")) {
-                newState = false;
-            }
+        if (state == null) {
+            state = !player.getAllowFlight();
         }
 
-        player.setAllowFlight(newState);
-        if (!newState) {
+        player.setFallDistance(0.0F);
+        player.setAllowFlight(state);
+        if (!state) {
             player.setFlying(false);
         }
 
-        String status = newState ? CMIMessages.getMsg(LC.info_variables_Enabled) : CMIMessages.getMsg(LC.info_variables_Disabled);
+        CMIUser user = plugin.getPlayerManager().getUser(player);
+        if (user != null) {
+            user.setTfly(0L);
+            if (!user.isOnline()) {
+                user.setHadAllowFlight(state);
+                user.setWasFlying(state);
+                user.setFlying(state);
+            }
+        }
 
-        com.Zrips.CMI.Locale.CMILC.info(this, sender, "flyToggled", "[status]", status, "[playerName]", user.getDisplayName());
+        plugin.save(player);
+
+        Snd snd = new Snd().setSender(sender).setTarget(player);
+        if (!silent) {
+            CMILC.info(this, sender, "feedback", snd, "[boolean]", state);
+        }
+
+        if (!player.getName().equalsIgnoreCase(sender.getName()) && !silent) {
+            CMILC.info(this, player, "targetFeedback", "[boolean]", state, snd);
+        }
 
         return true;
     }
