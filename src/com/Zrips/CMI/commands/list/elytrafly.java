@@ -10,11 +10,21 @@ import com.Zrips.CMI.commands.Cmd;
 import net.Zrips.CMILib.FileHandler.ConfigReader;
 import net.Zrips.CMILib.Items.CMIItemStack;
 import net.Zrips.CMILib.Items.CMIMaterial;
+import org.bukkit.Bukkit;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
+import org.bukkit.event.Listener;
+import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.inventory.InventoryDragEvent;
+import org.bukkit.event.player.PlayerInteractEvent;
+import org.bukkit.event.player.PlayerItemBreakEvent;
 import org.bukkit.inventory.ItemStack;
 
-public class elytrafly implements Cmd {
+public class elytrafly implements Cmd, Listener {
+
+    private CMI plugin;
 
     public elytrafly() {
     }
@@ -26,6 +36,65 @@ public class elytrafly implements Cmd {
         reader.get("targetFeedback", "{gcp}Your elytra fly mode set to {gcs}[boolean]{gcp} by {gcs}[senderDisplayName]{gcp}.");
     }
 
+    private void disable(Player player) {
+        player.setAllowFlight(false);
+        player.setFlying(false);
+
+        CMIUser user = plugin.getPlayerManager().getUser(player);
+        if (user != null) {
+            user.setHadAllowFlight(false);
+            user.setWasFlying(false);
+            user.setFlying(false);
+        }
+
+        CMILC.info(this, player, "ElytraRequired");
+    }
+
+    private void check(Player player) {
+        if (!player.getAllowFlight()) return;
+
+        Bukkit.getScheduler().runTask(plugin, () -> {
+            if (!player.isOnline()) return;
+
+            ItemStack chest = player.getInventory().getChestplate();
+            CMIItemStack cmiChest = new CMIItemStack(chest);
+
+            if (chest == null || cmiChest.getCMIType() != CMIMaterial.ELYTRA) {
+                disable(player);
+            }
+        });
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onInventoryClick(InventoryClickEvent event) {
+        if (event.getWhoClicked() instanceof Player) {
+            check((Player) event.getWhoClicked());
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onInventoryDrag(InventoryDragEvent event) {
+        if (event.getWhoClicked() instanceof Player) {
+            check((Player) event.getWhoClicked());
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onPlayerInteract(PlayerInteractEvent event) {
+        check(event.getPlayer());
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onItemBreak(PlayerItemBreakEvent event) {
+        Player player = event.getPlayer();
+        if (!player.getAllowFlight()) return;
+
+        CMIItemStack brokenItem = new CMIItemStack(event.getBrokenItem());
+        if (brokenItem.getCMIType() == CMIMaterial.ELYTRA) {
+            disable(player);
+        }
+    }
+
     @Override
     @CAnnotation(
             info = "Toggle flight mode specifically for Elytra users",
@@ -34,6 +103,9 @@ public class elytrafly implements Cmd {
             others = true
     )
     public Boolean perform(CMI plugin, CommandSender sender, String[] args) {
+        this.plugin = plugin;
+        Bukkit.getPluginManager().registerEvents(this, plugin);
+
         boolean silent = false;
         String targetName = null;
         Boolean state = null;
